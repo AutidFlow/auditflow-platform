@@ -95,6 +95,15 @@ services:
     profiles: [app]
     ports:
       - "8081:8081"
+    # Same command and endpoint the ECS task definition uses (infra repo,
+    # modules/ecs): liveness only - a Kafka/Postgres outage must not read
+    # as a dead container. curl ships in eclipse-temurin.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health/liveness || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     environment:
       <<: *kafka-env
       AUDIT_INGESTION_TOKENS: ${AUDIT_INGESTION_TOKENS:-}
@@ -111,6 +120,15 @@ services:
     profiles: [app]
     ports:
       - "8082:8082"
+    # Same command and endpoint the ECS task definition uses (infra repo,
+    # modules/ecs): liveness only - a Kafka/Postgres outage must not read
+    # as a dead container. curl ships in eclipse-temurin.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8082/actuator/health/liveness || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     environment:
       <<: [*kafka-env, *aurora-env]
       AUDIT_S3_BUCKET: auditflow-events
@@ -133,6 +151,15 @@ services:
     profiles: [app]
     ports:
       - "8083:8083"
+    # Same command and endpoint the ECS task definition uses (infra repo,
+    # modules/ecs): liveness only - a Kafka/Postgres outage must not read
+    # as a dead container. curl ships in eclipse-temurin.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/actuator/health/liveness || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     environment:
       <<: [*kafka-env, *aurora-env]
       ALERT_SLACK_WEBHOOK_URL: ${ALERT_SLACK_WEBHOOK_URL:-}
@@ -154,6 +181,15 @@ services:
     profiles: [app]
     ports:
       - "8080:8080"
+    # Same command and endpoint the ECS task definition uses (infra repo,
+    # modules/ecs): liveness only - a Kafka/Postgres outage must not read
+    # as a dead container. curl ships in eclipse-temurin.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health/liveness || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     environment:
       <<: *aurora-env
       AUDIT_AUTH_ENABLED: ${AUDIT_AUTH_ENABLED:-false}

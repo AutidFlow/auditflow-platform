@@ -47,6 +47,27 @@ class IngestTokenFilterTest {
         assertThat(wrong.getAttribute(IngestTokenFilter.TENANT_ATTRIBUTE)).isNull();
     }
 
+    @Test
+    void healthProbesNeedNoTokenEvenWhenTokensAreConfigured() throws ServletException, IOException {
+        IngestTokenFilter filter = new IngestTokenFilter("resistance=tok-a");
+
+        for (String probe : new String[]{"/actuator/health", "/actuator/health/liveness", "/actuator/health/readiness"}) {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", probe);
+            assertThat(through(filter, request).getStatus()).as(probe).isEqualTo(200);
+            assertThat(request.getAttribute(IngestTokenFilter.TENANT_ATTRIBUTE)).as(probe).isNull();
+        }
+    }
+
+    @Test
+    void theRestOfTheActuatorAndAnythingElseStillNeedsAToken() throws ServletException, IOException {
+        IngestTokenFilter filter = new IngestTokenFilter("resistance=tok-a");
+
+        for (String path : new String[]{"/actuator", "/actuator/env", "/actuator/healthz", "/api/v1/events"}) {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", path);
+            assertThat(through(filter, request).getStatus()).as(path).isEqualTo(401);
+        }
+    }
+
     private static MockHttpServletRequest post(String header) {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/events");
         if (header != null) {

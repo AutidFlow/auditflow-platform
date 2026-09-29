@@ -64,6 +64,21 @@
       <artifactId>jakarta.servlet-api</artifactId>
       <scope>provided</scope>
     </dependency>
+    <!-- The Kafka health indicators in com.auditflow.common.health implement
+         actuator's HealthIndicator; the listener one reads spring-kafka's
+         container registry. provided: a service that wires them already
+         brings spring-boot-starter-actuator and spring-kafka, and one that
+         does not (the gateway has no Kafka) never loads these classes. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-actuator</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.kafka</groupId>
+      <artifactId>spring-kafka</artifactId>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>org.flywaydb</groupId>
       <artifactId>flyway-core</artifactId>

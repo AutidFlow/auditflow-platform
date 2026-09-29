@@ -121,6 +121,23 @@ class EventIngestionIntegrationTest {
         assertThat(published.getTimestamp()).isEqualTo(sourceTime);
     }
 
+    /**
+     * The other half of {@code HealthProbesTest}: with a broker the
+     * readiness group is UP, so the Kafka indicator is wired to the real
+     * connection settings and not merely present.
+     */
+    @Test
+    void readinessIsUpWhenKafkaIsReachable() {
+        ResponseEntity<String> readiness = restTemplate.getForEntity(
+                "http://localhost:" + port + "/actuator/health/readiness", String.class);
+        ResponseEntity<String> liveness = restTemplate.getForEntity(
+                "http://localhost:" + port + "/actuator/health/liveness", String.class);
+
+        assertThat(readiness.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(readiness.getBody()).isEqualTo("{\"status\":\"UP\"}");
+        assertThat(liveness.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
     @Test
     void topicIsDeclaredWithTheConfiguredRetention() throws Exception {
         Properties props = new Properties();

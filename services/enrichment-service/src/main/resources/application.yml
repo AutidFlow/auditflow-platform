@@ -27,7 +27,37 @@ spring:
     baseline-on-migrate: true
     baseline-version: 1
 
+# Health only, never with details (an unauthenticated probe should learn
+# "UP", not our bootstrap servers or datasource URL). Two groups, two
+# questions:
+#   liveness  - what ECS's container health check hits. livenessState plus
+#               the listener containers: a stopped consumer is a zombie JVM
+#               and a restart is the cure. Deliberately NOT Kafka or Aurora
+#               reachability - a dependency outage must not get every task
+#               killed and replaced into the same outage.
+#   readiness - is this instance able to do its job right now: Kafka
+#               reachable, database reachable. For humans and alarms.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState,kafkaListeners
+        readiness:
+          include: readinessState,kafkaCluster,db
+
 audit:
+  health:
+    # One describeCluster round trip per readiness probe, bounded so a
+    # hung broker turns into DOWN, not a hung probe.
+    kafka-timeout: 3s
   ingestion:
     topic: audit-events
   enrichment:

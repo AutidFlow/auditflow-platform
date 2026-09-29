@@ -40,14 +40,20 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter</artifactId>
     </dependency>
+    <!-- Embedded Tomcat exists here for one reason: to answer
+         /actuator/health/liveness for ECS and /actuator/health/readiness
+         for humans and alarms. Nothing else is served. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-json</artifactId>
-    </dependency>
-    <!-- RestClient for the Slack webhook; no embedded server, this is not a web app -->
-    <dependency>
-      <groupId>org.springframework</groupId>
-      <artifactId>spring-web</artifactId>
     </dependency>
     <dependency>
       <groupId>org.springframework.kafka</groupId>
