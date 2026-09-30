@@ -1,6 +1,10 @@
 package com.auditflow.common.metrics;
 
 import io.micrometer.cloudwatch2.CloudWatchConfig;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.Tag;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -31,4 +35,23 @@ class CloudWatchMetricsTest {
         assertThatThrownBy(() -> CloudWatchMetrics.config(null, Duration.ofMinutes(1)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void theLagGaugeKeepsOnlyTheConsumerGroupAndOtherMetersKeepTheirTags() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        registry.config().meterFilter(CloudWatchMetrics.consumerLagByGroup("enrichment-service"));
+
+        Gauge.builder(CloudWatchMetrics.CONSUMER_LAG_MAX, () -> 42)
+                .tags("client.id", "consumer-enrichment-service-1", "kafka.version", "3.7.1",
+                        "spring.id", "auditEventConsumerFactory.consumer-enrichment-service-1")
+                .register(registry);
+        registry.counter("auditflow.enrichment.events", "result", "processed").increment();
+
+        Meter.Id lag = registry.get(CloudWatchMetrics.CONSUMER_LAG_MAX).gauge().getId();
+        assertThat(lag.getTags()).containsExactly(Tag.of("consumer.group", "enrichment-service"));
+
+        Meter.Id events = registry.get("auditflow.enrichment.events").counter().getId();
+        assertThat(events.getTags()).containsExactly(Tag.of("result", "processed"));
+    }
+
 }

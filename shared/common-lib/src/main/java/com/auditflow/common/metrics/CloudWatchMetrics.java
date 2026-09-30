@@ -3,6 +3,9 @@ package com.auditflow.common.metrics;
 import io.micrometer.cloudwatch2.CloudWatchConfig;
 import io.micrometer.cloudwatch2.CloudWatchMeterRegistry;
 import io.micrometer.core.instrument.Clock;
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.Tags;
+import io.micrometer.core.instrument.config.MeterFilter;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchAsyncClient;
 
 import java.time.Duration;
@@ -45,5 +48,35 @@ public final class CloudWatchMetrics {
 
     public static CloudWatchMeterRegistry registry(CloudWatchConfig config, CloudWatchAsyncClient client) {
         return new CloudWatchMeterRegistry(config, Clock.SYSTEM, client);
+    }
+
+    /** The Kafka client's per-consumer backlog gauge, the one client meter that is exported. */
+    public static final String CONSUMER_LAG_MAX = "kafka.consumer.fetch.manager.records.lag.max";
+    /** The one dimension the exported gauge keeps. */
+    public static final String CONSUMER_GROUP_TAG = "consumer.group";
+
+    /**
+     * Gives the lag gauge a dimension an alarm can name. The Kafka binder
+     * tags it with {@code client.id}, {@code kafka.version} and
+     * {@code spring.id} - values that change with every library upgrade
+     * and every task, and a CloudWatch alarm has to match a metric's
+     * dimensions exactly. This drops those and tags it with the consumer
+     * group instead, which is what the alarm is about.
+     *
+     * <p>Assumes one consumer per task ({@code concurrency} 1, the
+     * default), so nothing collides; with more, Micrometer would keep
+     * the first gauge and the others would go unreported. Raise the
+     * concurrency and this needs a partition or client tag back.
+     */
+    public static MeterFilter consumerLagByGroup(String consumerGroup) {
+        return new MeterFilter() {
+            @Override
+            public Meter.Id map(Meter.Id id) {
+                if (!CONSUMER_LAG_MAX.equals(id.getName())) {
+                    return id;
+                }
+                return id.replaceTags(Tags.of(CONSUMER_GROUP_TAG, consumerGroup));
+            }
+        };
     }
 }

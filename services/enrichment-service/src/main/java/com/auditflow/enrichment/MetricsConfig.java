@@ -2,6 +2,7 @@ package com.auditflow.enrichment;
 
 import com.auditflow.common.metrics.CloudWatchMetrics;
 import io.micrometer.cloudwatch2.CloudWatchMeterRegistry;
+import io.micrometer.core.instrument.config.MeterFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -34,5 +35,11 @@ public class MetricsConfig {
             @Value("${audit.metrics.cloudwatch.namespace:}") String namespace,
             @Value("${audit.metrics.cloudwatch.step:1m}") Duration step) {
         return CloudWatchMetrics.registry(CloudWatchMetrics.config(namespace, step), cloudWatchAsyncClient);
+    }
+
+    /** The consumer-lag alarm names the group, not the client; see {@link CloudWatchMetrics#consumerLagByGroup}. */
+    @Bean
+    public MeterFilter consumerLagByGroup(@Value("${spring.kafka.consumer.group-id}") String consumerGroup) {
+        return CloudWatchMetrics.consumerLagByGroup(consumerGroup);
     }
 }
