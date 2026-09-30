@@ -1,8 +1,30 @@
 # Active on ECS (SPRING_PROFILES_ACTIVE=aws, injected by the ecs Terraform
 # module). Bootstrap servers arrive via KAFKA_BOOTSTRAP_SERVERS.
 audit:
+  metrics:
+    # See the comment block further down for what is exported and why so little.
+    cloudwatch:
+      enabled: true
+      # Set by the ecs module: AuditFlow/<env name>, the namespace the
+      # infra repo's alarms and its API Gateway 5xx filter already use.
+      namespace: ${AUDIT_METRICS_NAMESPACE}
+      step: 1m
   kafka:
     msk-iam: true
   # No rate-limit override here: nothing proxies to ingestion-service, so
   # the socket address already is the client. Adding a trusted header would
   # only create a way to spoof one.
+
+# Metrics to CloudWatch, one PutMetricData a minute per task. CloudWatch
+# bills per distinct metric (name + dimensions, about $0.30/month each),
+# so everything is off and only what an alarm or a runbook reads is on:
+# our own auditflow.* meters and the consumer's max lag. JVM, Tomcat,
+# http.server.requests and the ~200 Kafka client meters would be hundreds
+# of dollars a month across the fleet and nobody would read them. Add a
+# meter here when there is an alarm or a dashboard panel for it.
+management:
+  metrics:
+    enable:
+      all: false
+      auditflow: true
+      kafka.consumer.fetch.manager.records.lag.max: true

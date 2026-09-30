@@ -1,8 +1,10 @@
 package com.auditflow.ingestion.api;
 
 import com.auditflow.ingestion.adapters.KafkaProducerAdapter;
+import com.auditflow.ingestion.metrics.IngestionMetrics;
 import com.auditflow.ingestion.security.IngestTokenFilter;
 import com.auditflow.ingestion.validation.SchemaValidator;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -26,7 +28,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * rather than a stubbed decision.
  */
 @WebMvcTest(EventIngestionController.class)
-@Import({IngestTokenFilter.class, SchemaValidator.class})
+@Import({IngestTokenFilter.class, SchemaValidator.class, IngestionMetrics.class, SimpleMeterRegistry.class})
 @TestPropertySource(properties = "audit.ingestion.tokens=cust-1=tok-1,other=tok-2")
 class EventIngestionControllerTenantBindingTest {
 

@@ -6,6 +6,7 @@ import com.auditflow.alerting.rules.RuleEngine;
 import com.auditflow.alerting.rules.RuleRepository;
 import com.auditflow.common.model.AlertRule;
 import com.auditflow.common.model.AuditEvent;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -29,16 +30,21 @@ public class AlertDispatcher {
 
     private static final Logger log = LoggerFactory.getLogger(AlertDispatcher.class);
 
+    /** One notification attempt on one channel, by {@code channel} and {@code result} (sent, failed). */
+    public static final String NOTIFICATIONS = "auditflow.alerting.notifications";
+
     private final RuleRepository rules;
     private final RuleEngine engine;
     private final Map<String, AlertNotifier> notifiersByChannel;
     private final AlertHistoryWriter history;
+    private final MeterRegistry registry;
 
     public AlertDispatcher(RuleRepository rules, RuleEngine engine, List<AlertNotifier> notifiers,
-                           AlertHistoryWriter history) {
+                           AlertHistoryWriter history, MeterRegistry registry) {
         this.rules = rules;
         this.engine = engine;
         this.history = history;
+        this.registry = registry;
         this.notifiersByChannel = notifiers.stream()
                 .collect(Collectors.toMap(AlertNotifier::channel, Function.identity()));
     }
@@ -62,7 +68,11 @@ public class AlertDispatcher {
                 try {
                     notifier.notify(rule, event);
                     notified.add(channel);
+                    registry.counter(NOTIFICATIONS, "channel", channel, "result", "sent").increment();
                 } catch (Exception e) {
+                    // A failing channel is the alarm-worthy signal here: the
+                    // rule matched, the page did not go out.
+                    registry.counter(NOTIFICATIONS, "channel", channel, "result", "failed").increment();
                     log.error("Notifier '{}' failed for rule {} event {}: {}",
                             channel, rule.getRuleId(), event.getEventId(), e.toString());
                 }

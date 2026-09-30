@@ -54,6 +54,10 @@ management:
           include: readinessState,kafkaCluster,db
 
 audit:
+  metrics:
+    # Meters stay in-process. The aws profile exports them to CloudWatch.
+    cloudwatch:
+      enabled: false
   health:
     # One describeCluster round trip per readiness probe, bounded so a
     # hung broker turns into DOWN, not a hung probe.

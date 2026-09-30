@@ -3,6 +3,9 @@ package com.auditflow.enrichment.adapters;
 import com.auditflow.common.interfaces.DataSink;
 import com.auditflow.common.interfaces.EventProcessor;
 import com.auditflow.common.model.AuditEvent;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
@@ -25,10 +28,24 @@ import java.util.List;
 @Component
 public class KafkaConsumerAdapter {
 
+    /** Events that made it through every sink, by {@code result}. */
+    public static final String EVENTS = "auditflow.enrichment.events";
+    /** One write to one sink, by {@code sink}; only successful writes are timed. */
+    public static final String SINK_WRITES = "auditflow.enrichment.sink.writes";
+    /** Writes that threw, by {@code sink}. The container retries the whole event. */
+    public static final String SINK_FAILURES = "auditflow.enrichment.sink.failures";
+
     private final List<EventProcessor> processors;
     private final List<DataSink> sinks;
+    private final MeterRegistry registry;
+    private final Counter processed;
 
-    public KafkaConsumerAdapter(List<EventProcessor> processors, List<DataSink> sinks) {
+    public KafkaConsumerAdapter(List<EventProcessor> processors, List<DataSink> sinks, MeterRegistry registry) {
+        this.registry = registry;
+        this.processed = Counter.builder(EVENTS)
+                .description("Events enriched and written to every sink, or dead-lettered")
+                .tag("result", "processed")
+                .register(registry);
         this.processors = processors.stream()
                 .sorted(Comparator.comparingInt(EventProcessor::order))
                 .toList();
@@ -52,7 +69,28 @@ public class KafkaConsumerAdapter {
             enriched = processor.process(enriched);
         }
         for (DataSink sink : sinks) {
-            sink.write(enriched);
+            write(sink, enriched);
         }
+        processed.increment();
+    }
+
+    /**
+     * Timed per sink so a slow S3 or a saturated Aurora shows up as that
+     * sink's latency, not as a vague "enrichment is slow". A failure is
+     * counted and rethrown: the container owns the retry and, after the
+     * back-off budget, the dead-letter (see {@link KafkaConsumerConfig}).
+     */
+    private void write(DataSink sink, AuditEvent event) {
+        Timer.Sample sample = Timer.start(registry);
+        try {
+            sink.write(event);
+        } catch (RuntimeException e) {
+            registry.counter(SINK_FAILURES, "sink", sink.sinkName()).increment();
+            throw e;
+        }
+        sample.stop(Timer.builder(SINK_WRITES)
+                .description("Successful writes of one enriched event to one sink")
+                .tag("sink", sink.sinkName())
+                .register(registry));
     }
 }

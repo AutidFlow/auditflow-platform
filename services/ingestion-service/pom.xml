@@ -28,6 +28,13 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
+    <!-- CloudWatch export of the meters actuator collects. Off unless the
+         aws profile turns it on; the allow-list there is what keeps the
+         CloudWatch bill to a handful of metrics. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-cloudwatch2</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-validation</artifactId>

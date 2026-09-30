@@ -2,7 +2,10 @@ package com.auditflow.ingestion.api;
 
 import com.auditflow.ingestion.adapters.KafkaProducerAdapter;
 import com.auditflow.ingestion.adapters.PublishFailedException;
+import com.auditflow.ingestion.metrics.IngestionMetrics;
 import com.auditflow.ingestion.validation.SchemaValidator;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -10,6 +13,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import io.micrometer.core.instrument.MeterRegistry;
 
 import com.auditflow.common.model.AuditEvent;
 import org.mockito.ArgumentCaptor;
@@ -30,7 +34,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(EventIngestionController.class)
 // the real validator rather than a mock of it: it is our own code, and
 // mocking it would hide the domain checks this endpoint depends on
-@Import(SchemaValidator.class)
+// the web slice has no MeterRegistry of its own; a real in-memory one, not a mock
+@Import({SchemaValidator.class, IngestionMetrics.class, SimpleMeterRegistry.class})
 class EventIngestionControllerTest {
 
     private static final String BODY = """
@@ -43,10 +48,21 @@ class EventIngestionControllerTest {
     @MockBean
     private KafkaProducerAdapter kafkaProducerAdapter;
 
+    @Autowired
+    private MeterRegistry meterRegistry;
+
+    private double count(String result) {
+        return meterRegistry.get(IngestionMetrics.EVENTS).tag("result", result).counter().count();
+    }
+
     @Test
     void acknowledgedPublishIs202() throws Exception {
+        double before = count("accepted");
+
         mockMvc.perform(post("/api/v1/events").contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isAccepted());
+
+        assertThat(count("accepted")).isEqualTo(before + 1);
     }
 
     @Test
@@ -54,10 +70,15 @@ class EventIngestionControllerTest {
         doThrow(new PublishFailedException("evt-1", new RuntimeException("broker down")))
                 .when(kafkaProducerAdapter).publish(any());
 
+        double before = count("publish_failed");
+
         mockMvc.perform(post("/api/v1/events").contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(header().string("Retry-After", "5"))
                 .andExpect(jsonPath("$.error").value("event not durably stored, retry"));
+
+        // the alarm in the infra repo reads this one: a refused event is counted, an accepted one is not
+        assertThat(count("publish_failed")).isEqualTo(before + 1);
     }
 
     @Test
