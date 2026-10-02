@@ -79,6 +79,13 @@
       <artifactId>spring-kafka</artifactId>
       <scope>provided</scope>
     </dependency>
+    <!-- CloudWatchMetrics builds the registry each service declares as a
+         bean. provided: the services that export bring the registry. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-cloudwatch2</artifactId>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>org.flywaydb</groupId>
       <artifactId>flyway-core</artifactId>

@@ -9,6 +9,7 @@ import com.auditflow.common.enums.EventType;
 import com.auditflow.common.enums.RiskLevel;
 import com.auditflow.common.model.AlertRule;
 import com.auditflow.common.model.AuditEvent;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -29,8 +30,9 @@ class AlertDispatcherTest {
     private final AlertNotifier email = notifier("email");
     private final RuleRepository rules = mock(RuleRepository.class);
     private final AlertHistoryWriter history = mock(AlertHistoryWriter.class);
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final AlertDispatcher dispatcher = new AlertDispatcher(
-            rules, new RuleEngine(new ConditionEvaluator()), List.of(slack, email), history);
+            rules, new RuleEngine(new ConditionEvaluator()), List.of(slack, email), history, registry);
 
     private static AlertNotifier notifier(String channel) {
         AlertNotifier n = mock(AlertNotifier.class);
@@ -84,6 +86,23 @@ class AlertDispatcherTest {
         verify(email).notify(any(), any());
         // the record names only the channel that got through
         verify(history).record(any(), any(), eq(List.of("email")));
+    }
+
+    /** The meter the "pages are not going out" alarm reads. */
+    @Test
+    void everyNotificationAttemptIsCountedByChannelAndOutcome() {
+        when(rules.rulesFor("acme")).thenReturn(List.of(rule("r1", "acme", null, "slack", "email")));
+        doThrow(new RuntimeException("slack is down")).when(slack).notify(any(), any());
+
+        dispatcher.dispatch(loginFailure("acme"));
+        dispatcher.dispatch(loginFailure("acme"));
+
+        assertThat(registry.get(AlertDispatcher.NOTIFICATIONS)
+                .tags("channel", "slack", "result", "failed").counter().count()).isEqualTo(2);
+        assertThat(registry.get(AlertDispatcher.NOTIFICATIONS)
+                .tags("channel", "email", "result", "sent").counter().count()).isEqualTo(2);
+        assertThat(registry.find(AlertDispatcher.NOTIFICATIONS)
+                .tags("channel", "slack", "result", "sent").counter()).isNull();
     }
 
     @Test

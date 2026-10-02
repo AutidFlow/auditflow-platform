@@ -1,7 +1,10 @@
 package com.auditflow.alerting.adapters;
 
+import com.auditflow.alerting.dispatch.EnrichedEventListener;
 import com.auditflow.common.kafka.MskIam;
 import com.auditflow.common.model.AuditEvent;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -14,6 +17,7 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.KafkaAdmin;
+import org.springframework.kafka.core.MicrometerConsumerListener;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
@@ -32,7 +36,8 @@ public class KafkaConsumerConfig {
     public ConsumerFactory<String, AuditEvent> enrichedEventConsumerFactory(
             @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
             @Value("${spring.kafka.consumer.group-id}") String groupId,
-            @Value("${audit.kafka.msk-iam:false}") boolean mskIamAuth) {
+            @Value("${audit.kafka.msk-iam:false}") boolean mskIamAuth,
+            MeterRegistry meterRegistry) {
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
@@ -46,7 +51,11 @@ public class KafkaConsumerConfig {
         if (mskIamAuth) {
             props.putAll(MskIam.clientProperties());
         }
-        return new DefaultKafkaConsumerFactory<>(props);
+        DefaultKafkaConsumerFactory<String, AuditEvent> factory = new DefaultKafkaConsumerFactory<>(props);
+        // Kafka client metrics into the registry; the aws profile exports
+        // only records.lag.max of them (see enrichment's config for why).
+        factory.addListener(new MicrometerConsumerListener<>(meterRegistry));
+        return factory;
     }
 
     /**
@@ -86,11 +95,17 @@ public class KafkaConsumerConfig {
      * behind it.
      */
     @Bean
-    public DefaultErrorHandler enrichedEventErrorHandler() {
+    public DefaultErrorHandler enrichedEventErrorHandler(MeterRegistry meterRegistry) {
+        Counter dropped = Counter.builder(EnrichedEventListener.EVENTS)
+                .description("Enriched events consumed, matched against rules or given up on")
+                .tag("result", "dropped")
+                .register(meterRegistry);
         return new DefaultErrorHandler(
-                (record, exception) -> log.error(
-                        "Giving up on enriched event {}-{}@{}; no alert was raised for it: {}",
-                        record.topic(), record.partition(), record.offset(), exception.toString()),
+                (record, exception) -> {
+                    dropped.increment();
+                    log.error("Giving up on enriched event {}-{}@{}; no alert was raised for it: {}",
+                            record.topic(), record.partition(), record.offset(), exception.toString());
+                },
                 new FixedBackOff(1000L, 2L));
     }
 

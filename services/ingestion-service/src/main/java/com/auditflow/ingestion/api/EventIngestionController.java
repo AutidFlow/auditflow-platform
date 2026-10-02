@@ -3,6 +3,7 @@ package com.auditflow.ingestion.api;
 import com.auditflow.common.model.AuditEvent;
 import com.auditflow.ingestion.adapters.KafkaProducerAdapter;
 import com.auditflow.ingestion.adapters.PublishFailedException;
+import com.auditflow.ingestion.metrics.IngestionMetrics;
 import com.auditflow.ingestion.security.IngestTokenFilter;
 import com.auditflow.ingestion.validation.SchemaValidator;
 import com.auditflow.ingestion.validation.TenantMismatchException;
@@ -31,10 +32,13 @@ public class EventIngestionController {
 
     private final SchemaValidator schemaValidator;
     private final KafkaProducerAdapter kafkaProducerAdapter;
+    private final IngestionMetrics metrics;
 
-    public EventIngestionController(SchemaValidator schemaValidator, KafkaProducerAdapter kafkaProducerAdapter) {
+    public EventIngestionController(SchemaValidator schemaValidator, KafkaProducerAdapter kafkaProducerAdapter,
+                                    IngestionMetrics metrics) {
         this.schemaValidator = schemaValidator;
         this.kafkaProducerAdapter = kafkaProducerAdapter;
+        this.metrics = metrics;
     }
 
     /**
@@ -51,6 +55,7 @@ public class EventIngestionController {
         AuditEvent event = toAuditEvent(request);
         schemaValidator.validate(event, boundTenant);
         kafkaProducerAdapter.publish(event);
+        metrics.accepted();
         return ResponseEntity.accepted().build();
     }
 
@@ -61,6 +66,7 @@ public class EventIngestionController {
      */
     @ExceptionHandler(TenantMismatchException.class)
     public ResponseEntity<Map<String, String>> tenantMismatch(TenantMismatchException e) {
+        metrics.tenantMismatch();
         log.warn("Rejected event: {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(Map.of("error", "customerId does not match the tenant bound to the presented token"));
@@ -68,11 +74,13 @@ public class EventIngestionController {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, String>> invalidEvent(IllegalArgumentException e) {
+        metrics.invalid();
         return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
     }
 
     @ExceptionHandler(PublishFailedException.class)
     public ResponseEntity<Map<String, String>> publishFailed(PublishFailedException e) {
+        metrics.publishFailed();
         log.warn("Event not accepted: {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .header(HttpHeaders.RETRY_AFTER, "5")

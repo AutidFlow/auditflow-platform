@@ -1,6 +1,8 @@
 package com.auditflow.enrichment.adapters;
 
 import com.auditflow.common.model.AuditEvent;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import com.auditflow.common.kafka.MskIam;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -20,6 +22,7 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.MicrometerConsumerListener;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
@@ -63,7 +66,8 @@ public class KafkaConsumerConfig {
     public ConsumerFactory<String, AuditEvent> auditEventConsumerFactory(
             @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
             @Value("${spring.kafka.consumer.group-id}") String groupId,
-            @Value("${audit.kafka.msk-iam:false}") boolean mskIamAuth) {
+            @Value("${audit.kafka.msk-iam:false}") boolean mskIamAuth,
+            MeterRegistry meterRegistry) {
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
@@ -77,7 +81,13 @@ public class KafkaConsumerConfig {
         if (mskIamAuth) {
             props.putAll(MskIam.clientProperties());
         }
-        return new DefaultKafkaConsumerFactory<>(props);
+        DefaultKafkaConsumerFactory<String, AuditEvent> factory = new DefaultKafkaConsumerFactory<>(props);
+        // Binds the Kafka client's own metrics to the registry. Boot does
+        // this for the factory it auto-configures, not for ours. Of the ~200
+        // meters this registers, the aws profile exports exactly one -
+        // records.lag.max, the backlog alarm - and denies the rest.
+        factory.addListener(new MicrometerConsumerListener<>(meterRegistry));
+        return factory;
     }
 
     /**
@@ -135,6 +145,7 @@ public class KafkaConsumerConfig {
     @Bean
     public DefaultErrorHandler auditEventErrorHandler(
             KafkaTemplate<Object, Object> deadLetterKafkaTemplate,
+            MeterRegistry meterRegistry,
             @Value("${audit.enrichment.dead-letter-topic:audit-events.DLT}") String deadLetterTopic,
             @Value("${audit.enrichment.retry.initial-interval:500ms}") Duration initialInterval,
             @Value("${audit.enrichment.retry.multiplier:2.0}") double multiplier,
@@ -147,6 +158,14 @@ public class KafkaConsumerConfig {
                 deadLetterKafkaTemplate,
                 (record, exception) -> new TopicPartition(deadLetterTopic, record.partition()));
 
+        // The data-loss alarm in the infra repo reads this counter: any
+        // non-zero minute means an event the pipeline could not store is
+        // sitting on the DLT waiting for a human.
+        Counter deadLettered = Counter.builder(KafkaConsumerAdapter.EVENTS)
+                .description("Events enriched and written to every sink, or dead-lettered")
+                .tag("result", "dead_lettered")
+                .register(meterRegistry);
+
         DefaultErrorHandler handler = new DefaultErrorHandler((record, exception) -> {
             // Dead-lettering is not routine: it means an audit event was not
             // enriched and not stored. Say so at ERROR, with enough to find
@@ -155,6 +174,7 @@ public class KafkaConsumerConfig {
                     record.topic(), record.partition(), record.offset(), deadLetterTopic,
                     exception.toString());
             publisher.accept(record, exception);
+            deadLettered.increment();
         }, backOff(initialInterval, multiplier, maxInterval, maxRetries));
 
         handler.setRetryListeners((record, exception, deliveryAttempt) ->
