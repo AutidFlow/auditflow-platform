@@ -1,9 +1,9 @@
 package com.auditflow.alerting.adapters;
 
+import com.auditflow.common.kafka.MskIam;
 import com.auditflow.common.model.AuditEvent;
-import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
@@ -43,13 +44,30 @@ public class KafkaConsumerConfig {
         props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, AuditEvent.class.getName());
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         if (mskIamAuth) {
-            props.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, "SASL_SSL");
-            props.put(SaslConfigs.SASL_MECHANISM, "AWS_MSK_IAM");
-            props.put(SaslConfigs.SASL_JAAS_CONFIG, "software.amazon.msk.auth.iam.IAMLoginModule required;");
-            props.put(SaslConfigs.SASL_CLIENT_CALLBACK_HANDLER_CLASS,
-                    "software.amazon.msk.auth.iam.IAMClientCallbackHandler");
+            props.putAll(MskIam.clientProperties());
         }
         return new DefaultKafkaConsumerFactory<>(props);
+    }
+
+    /**
+     * Alerting declares no topics, so this admin never creates one; it
+     * exists to hold the connection settings (bootstrap, MSK IAM) once, so
+     * the readiness probe in {@code HealthConfig} reaches the broker the
+     * way the consumer above does.
+     */
+    @Bean
+    public KafkaAdmin alertingKafkaAdmin(@Value("${spring.kafka.bootstrap-servers}") String bootstrapServers,
+                                         @Value("${audit.kafka.msk-iam:false}") boolean mskIamAuth) {
+        Map<String, Object> props = new HashMap<>();
+        props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        props.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 5_000);
+        if (mskIamAuth) {
+            props.putAll(MskIam.clientProperties());
+        }
+        KafkaAdmin admin = new KafkaAdmin(props);
+        admin.setFatalIfBrokerNotAvailable(false);
+        admin.setAutoCreate(false);
+        return admin;
     }
 
     /**

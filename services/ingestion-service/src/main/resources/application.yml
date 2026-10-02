@@ -7,7 +7,31 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
+# Health only, never with details (an unauthenticated probe should learn
+# "UP", not our bootstrap servers). Liveness is what ECS's container health
+# check hits: livenessState alone - "is this process still serving?" - so a
+# broker outage cannot get every task killed and replaced into the same
+# outage. Readiness adds the Kafka probe: a source that asks it learns
+# whether a POST would be accepted (202) or refused (503) right now.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,kafkaCluster
+
 audit:
+  health:
+    # One describeCluster round trip per readiness probe, bounded so a
+    # hung broker turns into DOWN, not a hung probe.
+    kafka-timeout: 3s
   ingestion:
     topic: audit-events
     # Declared on startup with this retention (MSK Serverless retention is

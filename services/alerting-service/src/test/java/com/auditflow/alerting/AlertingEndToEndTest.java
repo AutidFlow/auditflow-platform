@@ -8,6 +8,7 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -17,6 +18,7 @@ import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -32,6 +34,9 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * The whole service, wired for real: the seed file lands in alert_rules
@@ -46,6 +51,7 @@ import static org.awaitility.Awaitility.await;
         "spring.kafka.bootstrap-servers=${spring.embedded.kafka.brokers}"
 })
 @EmbeddedKafka(partitions = 1, topics = "audit-events-enriched")
+@AutoConfigureMockMvc
 class AlertingEndToEndTest {
 
     @Container
@@ -54,6 +60,9 @@ class AlertingEndToEndTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private MockMvc mockMvc;
 
     private static final HttpServer SLACK;
     private static final CompletableFuture<String> POSTED = new CompletableFuture<>();
@@ -118,4 +127,20 @@ class AlertingEndToEndTest {
                             assertThat(row.get("notified_channels")).isEqualTo("slack");
                         }));
     }
+
+    /**
+     * The probes as ECS and the on-call human will see them: listeners
+     * running and both dependencies reachable, so liveness and readiness
+     * are UP - and say nothing else, because show-details is never.
+     */
+    @Test
+    void livenessAndReadinessAreUpWhileListenersRunAndDependenciesAnswer() throws Exception {
+        mockMvc.perform(get("/actuator/health/liveness"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"status\":\"UP\"}", true));
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"status\":\"UP\"}", true));
+    }
+
 }

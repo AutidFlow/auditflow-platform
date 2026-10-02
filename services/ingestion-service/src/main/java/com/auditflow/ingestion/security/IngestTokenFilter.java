@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 import java.io.IOException;
 import java.util.Optional;
@@ -28,6 +29,12 @@ import java.util.Optional;
  * <p>No tokens configured = open, for local development only. ALWAYS set
  * audit.ingestion.tokens anywhere the endpoint is reachable by anything you
  * do not control, or anyone can forge audit evidence.
+ *
+ * <p>The health probes ({@code /actuator/health/**}) are the one exception:
+ * ECS and the load balancer present no token, and a 401 there would mark
+ * every correctly-secured task unhealthy and cycle it forever. Health is
+ * the only actuator endpoint exposed and it never shows details, so an
+ * unauthenticated "UP" is all a caller learns.
  */
 @Component
 public class IngestTokenFilter extends OncePerRequestFilter {
@@ -55,6 +62,18 @@ public class IngestTokenFilter extends OncePerRequestFilter {
             log.info("Ingestion tokens configured for {} tenant(s): {}",
                     tokens.tenants().size(), tokens.tenants());
         }
+    }
+
+    /**
+     * Decoded path, as the controllers are routed: the raw URI would let
+     * {@code /%61ctuator/health} through the token check for nothing (it is
+     * not an event endpoint), but comparing decoded is the rule everywhere
+     * else in this codebase and one rule is easier to keep right than two.
+     */
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = UrlPathHelper.defaultInstance.getPathWithinApplication(request);
+        return path.equals("/actuator/health") || path.startsWith("/actuator/health/");
     }
 
     @Override
