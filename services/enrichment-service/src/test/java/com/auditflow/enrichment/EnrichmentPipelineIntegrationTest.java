@@ -18,6 +18,7 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -28,6 +29,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -46,6 +48,9 @@ import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * What happens to an event the pipeline cannot handle.
@@ -70,6 +75,7 @@ import static org.mockito.Mockito.mock;
         "audit.retention.enabled=false"
 })
 @Import(EnrichmentPipelineIntegrationTest.Stubs.class)
+@AutoConfigureMockMvc
 class EnrichmentPipelineIntegrationTest {
 
     private static final String TOPIC = "audit-events";
@@ -153,6 +159,9 @@ class EnrichmentPipelineIntegrationTest {
 
     @Autowired
     private FlakySink flakySink;
+
+    @Autowired
+    private MockMvc mockMvc;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -303,4 +312,20 @@ class EnrichmentPipelineIntegrationTest {
         }
         throw new AssertionError("Timed out waiting for " + what);
     }
+
+    /**
+     * The probes as ECS and the on-call human will see them: listeners
+     * running and both dependencies reachable, so liveness and readiness
+     * are UP - and say nothing else, because show-details is never.
+     */
+    @Test
+    void livenessAndReadinessAreUpWhileListenersRunAndDependenciesAnswer() throws Exception {
+        mockMvc.perform(get("/actuator/health/liveness"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"status\":\"UP\"}", true));
+        mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"status\":\"UP\"}", true));
+    }
+
 }

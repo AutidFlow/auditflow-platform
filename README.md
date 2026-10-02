@@ -121,6 +121,18 @@ delivery. Both routes go through the same token-checked endpoint.
   cannot read the datasource URL back. The ALB specifically probes
   `/actuator/health/liveness`, which excludes the Aurora check, so a
   database blip degrades responses instead of draining every task.
+  The other three services answer the same two probes on their own ports
+  (`HealthConfig` in each, indicators shared from `common-lib`'s
+  `health` package). **Liveness** is `livenessState` plus, where there
+  are consumers, `kafkaListeners` - a stopped listener container is a
+  zombie JVM and a restart is the cure - and never a dependency.
+  **Readiness** adds `kafkaCluster` (one bounded `describeCluster`,
+  built from the service's own client properties so it authenticates to
+  MSK the way the producers and consumers do) and `db` where there is
+  one. ECS's container health check and the compose `healthcheck`s hit
+  liveness; readiness is for humans and alarms. Ingestion's token filter
+  lets `/actuator/health/**` through without a token - the only path it
+  does - because ECS presents none.
 - `agent/collector-agent` — the pull-based intake path, for source systems
   you can't modify: tails MySQL's general query log (`log_output=TABLE`),
   **redacts every literal client-side** (an audit trail must not become
